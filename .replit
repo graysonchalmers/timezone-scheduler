@@ -1,0 +1,30 @@
+run = "python app.py"
+language = "python3"
+entrypoint = "app.py"
+hidden = [".config", "**/__pycache__", "**/.mypy_cache", "**/*.pyc"]
+
+[nix]
+channel = "stable-22_11"
+
+[languages]
+python = "3.9"
+
+[env]
+PYTHONPATH = "${PYTHONPATH}:${workspaceFolder}"
+FLASK_APP = "app.py"
+FLASK_ENV = "production"
+
+[packager]
+language = "python3"
+ignoredPackages = ["unit_tests"]
+
+[packager.features]
+packageSearch = true
+guessImports = true
+
+[languages.python3]
+pattern = "**/*.py"
+syntax = "python"
+
+[languages.python3.languageServer]
+start = "pylsp"

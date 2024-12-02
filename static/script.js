@@ -1,5 +1,5 @@
 // Time format state
-let use24HourFormat = true;
+let use24HourFormat = JSON.parse(localStorage.getItem('use24HourFormat')) ?? true;
 
 // Default timezones and time constants
 const DEFAULT_TIMEZONES = [
@@ -40,6 +40,9 @@ $(document).ready(function() {
         theme: 'default'
     });
 
+    // Load saved settings
+    loadSettings();
+
     // Set slider to current time
     initializeTimeSlider();
 
@@ -51,8 +54,9 @@ $(document).ready(function() {
     // Initialize time display
     updateTime();
 
-    // Initialize time format toggle
-    document.getElementById('toggleTimeFormat').addEventListener('click', toggleTimeFormat);
+    // Initialize time format toggle button state
+    const formatText = document.querySelector('#toggleTimeFormat .format-text');
+    formatText.textContent = use24HourFormat ? '24h' : '12h';
 });
 
 function toggleTimeFormat() {
@@ -61,6 +65,7 @@ function toggleTimeFormat() {
     formatText.textContent = use24HourFormat ? '24h' : '12h';
     updateAllTimezones();
     updateTime();
+    saveSettings();
 }
 
 function formatTime(dateTime) {
@@ -129,15 +134,11 @@ function addTimezone() {
     const select = document.getElementById('timezoneSelect');
     const timezone = select.value;
     
-    if (selectedTimezones.has(timezone)) {
-        alert('This timezone is already added!');
-        return;
+    if (!selectedTimezones.has(timezone)) {
+        selectedTimezones.add(timezone);
+        addTimezoneCard(timezone);
+        saveSettings();
     }
-    
-    selectedTimezones.add(timezone);
-    saveTimezones();
-    addTimezoneCard(timezone);
-    updateAllTimezones();
 }
 
 function addTimezoneCard(timezone) {
@@ -208,36 +209,39 @@ function updateMeetingSummary(baseTime) {
 
 function removeTimezone(timezone) {
     selectedTimezones.delete(timezone);
-    saveTimezones();
-    
-    const card = document.getElementById(`timezone-${timezone.replace(/\//g, '-')}`);
+    const card = document.querySelector(`[data-timezone="${timezone}"]`);
     if (card) {
         card.remove();
+        saveSettings();
     }
-    updateAllTimezones();
 }
 
 function resetToDefaults() {
     // Clear existing timezones
     clearAllTimezones();
     
-    // Add default timezones
-    DEFAULT_TIMEZONES.forEach(timezone => {
-        selectedTimezones.add(timezone);
+    // Reset to default timezones
+    selectedTimezones = new Set(DEFAULT_TIMEZONES);
+    selectedTimezones.forEach(timezone => {
         addTimezoneCard(timezone);
     });
     
-    saveTimezones();
-    updateAllTimezones();
+    // Reset time format to 24h
+    use24HourFormat = true;
+    const formatText = document.querySelector('#toggleTimeFormat .format-text');
+    formatText.textContent = '24h';
     
-    // Close the modal
-    const modal = bootstrap.Modal.getInstance(document.getElementById('settingsModal'));
-    modal.hide();
+    // Update displays
+    updateAllTimezones();
+    updateTime();
+    
+    // Save new defaults
+    saveSettings();
 }
 
 function clearAllTimezones() {
     selectedTimezones.clear();
-    saveTimezones();
+    saveSettings();
     
     const timezoneList = document.getElementById('timezoneList');
     timezoneList.innerHTML = '';
@@ -247,8 +251,20 @@ function clearAllTimezones() {
     modal.hide();
 }
 
-function saveTimezones() {
-    localStorage.setItem('selectedTimezones', JSON.stringify([...selectedTimezones]));
+function saveSettings() {
+    localStorage.setItem('use24HourFormat', JSON.stringify(use24HourFormat));
+    localStorage.setItem('selectedTimezones', JSON.stringify(Array.from(selectedTimezones)));
+}
+
+function loadSettings() {
+    // Time format
+    use24HourFormat = JSON.parse(localStorage.getItem('use24HourFormat')) ?? true;
+    
+    // Selected timezones (already handled in initialization)
+    const savedTimezones = JSON.parse(localStorage.getItem('selectedTimezones'));
+    if (savedTimezones) {
+        selectedTimezones = new Set(savedTimezones);
+    }
 }
 
 function isDaytime(hour) {
@@ -256,14 +272,32 @@ function isDaytime(hour) {
 }
 
 function getTimeScore(hour) {
+    // Core business hours get highest score
     if (hour >= BUSINESS_HOURS.START && hour < BUSINESS_HOURS.END) {
-        return 1; // Business hours
-    } else if (hour >= BUSINESS_HOURS.EARLY && hour < BUSINESS_HOURS.START) {
-        return 0.7; // Early but acceptable
-    } else if (hour >= BUSINESS_HOURS.END && hour < BUSINESS_HOURS.LATE) {
-        return 0.7; // Late but acceptable
-    } else {
-        return 0.3; // Outside acceptable hours
+        // Optimal hours (10 AM - 4 PM) get perfect score
+        if (hour >= 10 && hour < 16) {
+            return 1.0;
+        }
+        // Early or late business hours get very good score
+        return 0.9;
+    }
+    // Early morning or early evening hours
+    else if ((hour >= BUSINESS_HOURS.EARLY && hour < BUSINESS_HOURS.START) ||
+             (hour >= BUSINESS_HOURS.END && hour < BUSINESS_HOURS.LATE)) {
+        // More favorable early/late hours
+        if ((hour >= 8 && hour < 9) || (hour >= 17 && hour < 18)) {
+            return 0.75;
+        }
+        // Less favorable early/late hours
+        return 0.6;
+    }
+    // Late evening hours (19-22) get lower score
+    else if (hour >= BUSINESS_HOURS.LATE && hour < 22) {
+        return 0.4;
+    }
+    // Night hours (22-7) get lowest score
+    else {
+        return 0.2;
     }
 }
 
@@ -275,15 +309,23 @@ function updateRecommendation(timeScores) {
     // Update marker position
     marker.style.left = `${avgScore * 100}%`;
     
-    // Update recommendation text
-    if (avgScore > 0.8) {
-        recommendationText.textContent = '✨ Great time!';
+    // Count zones in different time ranges
+    const businessHoursCount = timeScores.filter(score => score >= 0.9).length;
+    const acceptableHoursCount = timeScores.filter(score => score >= 0.6 && score < 0.9).length;
+    const challengingHoursCount = timeScores.filter(score => score < 0.6).length;
+    
+    // Generate recommendation text
+    if (avgScore > 0.9) {
+        recommendationText.textContent = '✨ Perfect! Core business hours for all zones';
+    } else if (avgScore > 0.8) {
+        recommendationText.textContent = `✨ Great! Business hours for ${businessHoursCount}/${timeScores.length} zones`;
     } else if (avgScore > 0.6) {
-        recommendationText.textContent = '👍 Good time';
+        recommendationText.textContent = `👍 Good - ${businessHoursCount} business, ${acceptableHoursCount} acceptable`;
     } else if (avgScore > 0.4) {
-        recommendationText.textContent = '😐 Acceptable';
+        const earlyLateCount = acceptableHoursCount;
+        recommendationText.textContent = `😐 Workable - ${earlyLateCount} early/late, ${challengingHoursCount} challenging`;
     } else {
-        recommendationText.textContent = '⚠️ Reconsider';
+        recommendationText.textContent = `⚠️ Difficult - ${challengingHoursCount}/${timeScores.length} zones outside work hours`;
     }
 }
 
@@ -301,7 +343,6 @@ function updateAllTimezones() {
             // Calculate time period and progress
             const timePeriod = getTimePeriod(localHour);
             const dayProgress = calculateDayProgress(localHour, localMinute);
-            const daytime = isDaytime(localHour);
             const timeScore = getTimeScore(localHour);
             timeScores.push(timeScore);
             
@@ -322,12 +363,14 @@ function updateAllTimezones() {
                 periodElement.textContent = `${timePeriod.icon} ${timePeriod.label}`;
                 periodElement.className = `time-period ${timePeriod.label.toLowerCase()}`;
                 
-                // Update progress bar with marker
+                // Update progress bar color and marker
+                const timeColor = getTimeColor(localHour);
                 progressBar.style.width = '100%';
+                progressBar.style.background = timeColor;
                 progressBar.innerHTML = `<div class="time-progress-marker" style="left: ${dayProgress}%"></div>`;
                 
                 // Update card styling
-                card.className = `timezone-card ${daytime ? 'daytime' : 'nighttime'}`;
+                card.className = 'timezone-card';
             }
         } catch (error) {
             console.error('Error converting time for timezone:', timezone, error);
@@ -351,6 +394,37 @@ function updateAllTimezones() {
     updateMeetingSummary(baseTime);
 }
 
+function getTimeColor(hour) {
+    // Define color stops for each hour (24 colors)
+    const colors = [
+        '#2d3748', // 0:00 (Midnight)
+        '#1a365d', // 1:00
+        '#1a365d', // 2:00
+        '#2b6cb0', // 3:00
+        '#2b6cb0', // 4:00
+        '#4299e1', // 5:00 (Dawn)
+        '#63b3ed', // 6:00
+        '#90cdf4', // 7:00
+        '#fbd38d', // 8:00
+        '#fbd38d', // 9:00
+        '#f6ad55', // 10:00
+        '#ed8936', // 11:00
+        '#dd6b20', // 12:00 (Noon)
+        '#ed8936', // 13:00
+        '#f6ad55', // 14:00
+        '#fbd38d', // 15:00
+        '#90cdf4', // 16:00
+        '#63b3ed', // 17:00
+        '#4299e1', // 18:00
+        '#3182ce', // 19:00
+        '#2b6cb0', // 20:00
+        '#2c5282', // 21:00
+        '#1a365d', // 22:00
+        '#2d3748'  // 23:00
+    ];
+    return colors[hour];
+}
+
 function sortTimezoneCards(baseTime) {
     const timezoneList = document.getElementById('timezoneList');
     const cards = Array.from(timezoneList.children);
@@ -365,6 +439,31 @@ function sortTimezoneCards(baseTime) {
 }
 
 document.getElementById('timeSlider').addEventListener('input', updateTime);
+
+// Add keyboard controls for time adjustment
+document.addEventListener('keydown', function(event) {
+    const slider = document.getElementById('timeSlider');
+    const currentValue = parseInt(slider.value);
+    
+    switch(event.key) {
+        case 'ArrowLeft':
+            // Move 15 minutes backward (1 step)
+            if (currentValue > 0) {
+                slider.value = currentValue - 1;
+                updateTime();
+            }
+            event.preventDefault();
+            break;
+        case 'ArrowRight':
+            // Move 15 minutes forward (1 step)
+            if (currentValue < SLIDER_CONFIG.STEPS - 1) {
+                slider.value = currentValue + 1;
+                updateTime();
+            }
+            event.preventDefault();
+            break;
+    }
+});
 
 function copyMeetingSummary() {
     const summaryText = document.getElementById('meetingSummary').textContent;

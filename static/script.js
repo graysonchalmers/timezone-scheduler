@@ -57,6 +57,9 @@ $(document).ready(function() {
     // Initialize time format toggle button state
     const formatText = document.querySelector('#toggleTimeFormat .format-text');
     formatText.textContent = use24HourFormat ? '24h' : '12h';
+
+    // Add click event listener for time format toggle
+    document.getElementById('toggleTimeFormat').addEventListener('click', toggleTimeFormat);
 });
 
 function toggleTimeFormat() {
@@ -146,7 +149,12 @@ function addTimezoneCard(timezone) {
     card.className = 'timezone-card';
     card.id = `timezone-${timezone.replace(/\//g, '-')}`;
     card.innerHTML = `
-        <span class="remove-btn" onclick="removeTimezone('${timezone}')">&times;</span>
+        <div class="delete-confirm">
+            <span>Delete?</span>
+            <button class="confirm-yes" onclick="confirmDelete('${timezone}', true)">Yes</button>
+            <button class="confirm-no" onclick="confirmDelete('${timezone}', false)">No</button>
+        </div>
+        <span class="remove-btn" onclick="showDeleteConfirm('${timezone}')">&times;</span>
         <div class="content">
             <div>
                 <div class="timezone-name">${timezone}</div>
@@ -164,6 +172,33 @@ function addTimezoneCard(timezone) {
     
     document.getElementById('timezoneList').appendChild(card);
     sortTimezoneCards(getCurrentBaseTime());
+}
+
+function showDeleteConfirm(timezone) {
+    // Hide any other visible confirmation popups
+    document.querySelectorAll('.delete-confirm.visible').forEach(popup => {
+        if (popup.closest('.timezone-card').id !== `timezone-${timezone.replace(/\//g, '-')}`) {
+            popup.classList.remove('visible');
+        }
+    });
+    
+    // Show this confirmation popup
+    const card = document.getElementById(`timezone-${timezone.replace(/\//g, '-')}`);
+    const confirm = card.querySelector('.delete-confirm');
+    confirm.classList.add('visible');
+}
+
+function confirmDelete(timezone, confirmed) {
+    const card = document.getElementById(`timezone-${timezone.replace(/\//g, '-')}`);
+    const confirm = card.querySelector('.delete-confirm');
+    confirm.classList.remove('visible');
+    
+    if (confirmed) {
+        selectedTimezones.delete(timezone);
+        card.remove();
+        saveSettings();
+        updateMeetingSummary(getCurrentBaseTime());
+    }
 }
 
 function updateTime() {
@@ -208,11 +243,11 @@ function updateMeetingSummary(baseTime) {
 }
 
 function removeTimezone(timezone) {
-    selectedTimezones.delete(timezone);
-    const card = document.querySelector(`[data-timezone="${timezone}"]`);
-    if (card) {
-        card.remove();
+    if (confirm('Are you sure you want to remove this timezone?')) {
+        selectedTimezones.delete(timezone);
+        document.getElementById(`timezone-${timezone}`).remove();
         saveSettings();
+        updateMeetingSummary(getCurrentBaseTime());
     }
 }
 

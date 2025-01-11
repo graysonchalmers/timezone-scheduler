@@ -2,6 +2,8 @@
 
 A web-based application for scheduling meetings across multiple timezones, built with Flask and modern JavaScript.
 
+<img src="https://github.com/graysonchalmers/timezone-scheduler/blob/main/timezone-scheduler-screenshot.png">
+
 ## Features
 
 - Dynamic timezone comparison
